@@ -1,30 +1,25 @@
 # collator-metrics-exporter
 
-*This is temporary solution
+*This is temporary solution.
+once Substrate implements sufficent prometheus metrics which allow us to achieve the same goal, This will be no more required.
+
+We want
+- Grafana block production board for each collator
+- Grafana missed block production board for each collator
 
 Astar collator metrics exporter.
 This queries data from SubQuery and export them as Prometheus formatted way.
 
 ## Metrics Explanations
 
-- `block_production_count_1h` Count of blocks that was produced by each collators last hour
+- `block_production_count` Count of blocks that was produced by each collators last 24 hours
   ```
-  block_production_count_1h{} 1
-  ```
-
-- `block_production_count_1d` Count of blocks that was produced by each collators last hour
-  ```
-  block_production_count_1d{} 1
+  block_production_count{} 1
   ```
 
-- `missed_block_production_count_1h` Counts of blocks each collator missed to produce last hour
+- `missed_block_production_count` Counts of blocks each collator missed to produce last 24 hours
   ```
-  missed_block_production_count_1h{} 1
-  ```
-
-- `missed_block_production_count_1d` Counts of blocks each collator missed to produce last hour
-  ```
-  missed_block_production_count_1d{} 1
+  missed_block_production_count{} 1
 
 - `produced_blocks` Block Information
   ```
