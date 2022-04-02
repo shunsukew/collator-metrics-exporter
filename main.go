@@ -22,7 +22,7 @@ var (
 	blockProductionGauge = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "block_production_count",
-			Help: "Block Productuion Count For Each Collator Last 24 Hours",
+			Help: "Block Productuion Count in the days before", // not last 24 hours because of subquery specification limitation.
 		},
 		[]string{"date", "name", "address"},
 	)
@@ -30,7 +30,7 @@ var (
 	missedBlockProductionGauge = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "missed_block_production_count",
-			Help: "Missed Block Productuion Count For Each Collator Last 24 Hours",
+			Help: "Missed Block Productuion Count in the days before", // not last 24 hours because of subquery specification limitation.
 		},
 		[]string{"date", "name", "address"},
 	)
