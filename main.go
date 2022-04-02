@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -19,24 +18,14 @@ const (
 	port = 9102
 )
 
-type ResponseData struct {
-}
-
+// Gueage
 var (
-	exampleGauge = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "example_number",
-			Help: "Example Gauge",
-		},
-		[]string{"fuga"},
-	)
-
 	blockProductionGauge = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "block_production_count",
 			Help: "Block Productuion Count For Each Collator Last 24 Hours",
 		},
-		[]string{"sample"},
+		[]string{"date", "name", "address"},
 	)
 
 	missedBlockProductionGauge = promauto.NewGaugeVec(
@@ -44,63 +33,82 @@ var (
 			Name: "missed_block_production_count",
 			Help: "Missed Block Productuion Count For Each Collator Last 24 Hours",
 		},
-		[]string{"sample"},
+		[]string{"date", "name", "address"},
 	)
 )
 
-func updateRandomValue() {
-	for {
-		rand.Seed(time.Now().UnixNano())
-		n := -1 + rand.Float64()*2
-		exampleGauge.With(prometheus.Labels{"label_key": "label_val"}).Set(n)
-		time.Sleep(10 * time.Second)
-	}
+//type ResponseData struct {
+//Data Data `json:"data"`
+//}
+
+type ResponseData struct {
+	BlockProductions BlockProductions `json:"blockProductions"`
 }
 
-func updateBlockProductionGuage(client *graphql.Client) {
-	req := graphql.NewRequest(`
-		query {
-		  blockProductions(filter: {
-		    dayId: {
-		      equalTo: "${formattedDate}"
-		    }
-		  },
-		  orderBy: BLOCKS_MISSED_DESC) {
-		    nodes {
-		      collatorId,
-		      collator{
-		        name
-		      },
-		      blocksProduced,
-		      blocksMissed
-		    }
-		  }
-	        }
-		`)
+type BlockProductions struct {
+	Nodes []*Node `json:"nodes"`
+}
 
-	req.Var("key", "value")
-	req.Header.Set("Cache-Control", "no-cache")
+type Node struct {
+	CollatorID     string   `json:"collatorId"`
+	Collator       Collator `json:"collator"`
+	BlocksProduced uint32   `json:"blocksProduced"`
+	BlocksMissed   uint32   `json:"blocksMissed"`
+}
 
+type Collator struct {
+	Name string `json:"name"`
+}
+
+func updateBlockProductionGuage() {
+	var lastUnixDay int64
 	for {
-		ctx := context.Background()
-		ctx, _ = context.WithTimeout(ctx, 60*time.Second)
+		now := time.Now()
+		yesterday := now.AddDate(0, 0, -1).Format("20060102")
+		graphQLClient := graphql.NewClient("https://api.subquery.network/sq/bobo-k2/collator-indexer__Ym9ib")
+		query := fmt.Sprintf(`query {
+			blockProductions(filter: {
+			  dayId: {
+			    equalTo: "%s"
+			  }
+			}) {
+			  nodes {
+			    collatorId,
+			    collator{
+			      name
+			    },
+			    blocksProduced,
+			    blocksMissed
+			  }
+			}
+		      }`, yesterday)
+		req := graphql.NewRequest(query)
+		req.Header.Set("Content-Type", "application/json")
+
+		// already updated metrics today
+		unixDay := now.Unix() / 86400
+		if lastUnixDay == unixDay {
+			time.Sleep(3600 * time.Second)
+			continue
+		}
 
 		var respData ResponseData
-		if err := client.Run(ctx, req, &respData); err != nil {
+		if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
 			log.Fatal(err)
 		}
 
-		time.Sleep(600 * time.Second)
+		for _, node := range respData.BlockProductions.Nodes {
+			blockProductionGauge.With(prometheus.Labels{"date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksProduced))
+			missedBlockProductionGauge.With(prometheus.Labels{"date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksMissed))
+		}
+
+		lastUnixDay = unixDay
 	}
 }
 
 func main() {
-	// configure subquery client
-	graphQLClient := graphql.NewClient("https://api.subquery.network/sq/bobo-k2/collator-indexer__Ym9ib")
-
 	// block
-
-	go setRandomValue()
+	go updateBlockProductionGuage()
 
 	log.Println("Starting prometheus metric server")
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

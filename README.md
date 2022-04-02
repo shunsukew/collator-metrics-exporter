@@ -1,14 +1,15 @@
 # collator-metrics-exporter
 
-*This is temporary solution.
-once Substrate implements sufficent prometheus metrics which allow us to achieve the same goal, This will be no more required.
+*This is for temporary usage.
+Once Substrate implements sufficent prometheus metrics which allow us to achieve the same goal, This will be no more required.
+We now only have SubQuery https://explorer.subquery.network/subquery/bobo-k2/collator-indexer?stage=true
 
 We want
 - Grafana block production board for each collator
 - Grafana missed block production board for each collator
 
 Astar collator metrics exporter.
-This queries data from SubQuery and export them as Prometheus formatted way.
+This just queries data from SubQuery and export them as Prometheus formatted way.
 
 ## Metrics Explanations
 
