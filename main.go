@@ -7,11 +7,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/machinebox/graphql"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-
-	"github.com/machinebox/graphql"
 )
 
 const (
@@ -61,11 +60,18 @@ type Collator struct {
 }
 
 func updateBlockProductionGuage() {
+	graphQLClient := graphql.NewClient("https://api.subquery.network/sq/bobo-k2/collator-indexer__Ym9ib")
 	var lastUnixDay int64
 	for {
 		now := time.Now()
+		// if already updated metrics today
+		unixDay := now.Unix() / 86400
+		if lastUnixDay == unixDay {
+			time.Sleep(3600 * time.Second)
+			continue
+		}
+
 		yesterday := now.AddDate(0, 0, -1).Format("20060102")
-		graphQLClient := graphql.NewClient("https://api.subquery.network/sq/bobo-k2/collator-indexer__Ym9ib")
 		query := fmt.Sprintf(`query {
 			blockProductions(filter: {
 			  dayId: {
@@ -84,13 +90,6 @@ func updateBlockProductionGuage() {
 		      }`, yesterday)
 		req := graphql.NewRequest(query)
 		req.Header.Set("Content-Type", "application/json")
-
-		// if already updated metrics today
-		unixDay := now.Unix() / 86400
-		if lastUnixDay == unixDay {
-			time.Sleep(3600 * time.Second)
-			continue
-		}
 
 		var respData ResponseData
 		if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
