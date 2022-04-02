@@ -85,7 +85,7 @@ func updateBlockProductionGuage() {
 		req := graphql.NewRequest(query)
 		req.Header.Set("Content-Type", "application/json")
 
-		// already updated metrics today
+		// if already updated metrics today
 		unixDay := now.Unix() / 86400
 		if lastUnixDay == unixDay {
 			time.Sleep(3600 * time.Second)
