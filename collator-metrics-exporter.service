@@ -2,7 +2,7 @@
 Description = collator metrics exporter
 
 [Service]
-ExecStart = /opt/bin/start-collator-metrics-exporter
+ExecStart = /usr/local/bin/start-collator-metrics-exporter
 Restart = always
 Type = simple
 

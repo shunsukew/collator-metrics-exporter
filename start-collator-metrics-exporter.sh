@@ -1,6 +1,6 @@
 #!/bin/bash -eux
 
-cd /opt/bin
+cd /usr/local/bin
 
 while ! [ -s collator-metrics-exporter ]; do
   rm -rf klone

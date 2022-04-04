@@ -29,5 +29,5 @@ This just queries data from SubQuery and export them as Prometheus formatted way
 
 ## How to run
 1. put collator-metrics-exporter service at /etc/systemd/system/
-2. put start-collator-metrics-exporter.sh at /opt/bin/
+2. put start-collator-metrics-exporter.sh at /usr/local/bin/
 3. sudo systemctl enable collator-metrics-exporter
