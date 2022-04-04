@@ -26,3 +26,8 @@ This just queries data from SubQuery and export them as Prometheus formatted way
   ```
   produced_blocks{collator_name: xxx, collator_address: yyy, block_height: 10000} 0
   ```
+
+## How to run
+1. put collator-metrics-exporter service at /etc/systemd/system/
+2. put start-collator-metrics-exporter.sh at /opt/bin/
+3. sudo systemctl enable collator-metrics-exporter
