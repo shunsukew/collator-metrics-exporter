@@ -96,6 +96,8 @@ func updateBlockProductionGuage() {
 			log.Fatal(err)
 		}
 
+		blockProductionGauge.Reset()
+		missedBlockProductionGauge.Reset()
 		for _, node := range respData.BlockProductions.Nodes {
 			blockProductionGauge.With(prometheus.Labels{"date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksProduced))
 			missedBlockProductionGauge.With(prometheus.Labels{"date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksMissed))
