@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
+	gsrpc "github.com/centrifuge/go-substrate-rpc-client/v4"
 	"github.com/machinebox/graphql"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -14,7 +16,8 @@ import (
 )
 
 const (
-	port = 9102
+	port     = 9102
+	endpoint = "https://api.subquery.network/sq/bobo-k2/collator-indexer-v2"
 )
 
 // Gueage
@@ -24,15 +27,31 @@ var (
 			Name: "block_production_count",
 			Help: "Block Productuion Count in the days before", // not last 24 hours because of subquery specification limitation.
 		},
-		[]string{"date", "name", "address"},
+		[]string{"network", "date", "name", "address"},
 	)
 
 	missedBlockProductionGauge = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "missed_block_production_count",
-			Help: "Missed Block Productuion Count in the days before", // not last 24 hours because of subquery specification limitation.
+			Help: "Missed Block Productuion Count in the days before",
 		},
-		[]string{"date", "name", "address"},
+		[]string{"network", "date", "name", "address"},
+	)
+
+	blockExtrinsicsGuage = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "block_extrinsics_count",
+			Help: "Block Extrinsics Count",
+		},
+		[]string{"network", "block_number"},
+	)
+
+	blockWeightRatio = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "block_weight_ratio",
+			Help: "Block Weight Ratio",
+		},
+		[]string{"network", "block_number"},
 	)
 )
 
@@ -40,15 +59,15 @@ var (
 //Data Data `json:"data"`
 //}
 
-type ResponseData struct {
+type BlockProductionsResponseData struct {
 	BlockProductions BlockProductions `json:"blockProductions"`
 }
 
 type BlockProductions struct {
-	Nodes []*Node `json:"nodes"`
+	Nodes []*BlockProduction `json:"nodes"`
 }
 
-type Node struct {
+type BlockProduction struct {
 	CollatorID     string   `json:"collatorId"`
 	Collator       Collator `json:"collator"`
 	BlocksProduced uint32   `json:"blocksProduced"`
@@ -59,8 +78,21 @@ type Collator struct {
 	Name string `json:"name"`
 }
 
-func updateBlockProductionGuage() {
-	graphQLClient := graphql.NewClient("https://api.subquery.network/sq/bobo-k2/collator-indexer__Ym9ib")
+type BlockFillingsResponseData struct {
+	BlockFillings BlockFillings `json:"blocks"`
+}
+
+type BlockFillings struct {
+	Nodes []*BlockFilling `json:"nodes"`
+}
+
+type BlockFilling struct {
+	BlockNumber     string  `json:"id"`
+	ExtrinsicsCount uint32  `json:"extrinsicsCount"`
+	WeightRatio     float64 `json:"weightRatio"`
+}
+
+func updateBlockProductionGuage(client *graphql.Client) {
 	var lastUnixDay int64
 	for {
 		now := time.Now()
@@ -87,29 +119,87 @@ func updateBlockProductionGuage() {
 			    blocksMissed
 			  }
 			}
-		      }`, yesterday)
+		}`, yesterday)
 		req := graphql.NewRequest(query)
 		req.Header.Set("Content-Type", "application/json")
 
-		var respData ResponseData
-		if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
+		var respData BlockProductionsResponseData
+		if err := client.Run(context.Background(), req, &respData); err != nil {
 			log.Fatal(err)
 		}
 
 		blockProductionGauge.Reset()
 		missedBlockProductionGauge.Reset()
 		for _, node := range respData.BlockProductions.Nodes {
-			blockProductionGauge.With(prometheus.Labels{"date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksProduced))
-			missedBlockProductionGauge.With(prometheus.Labels{"date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksMissed))
+			blockProductionGauge.With(prometheus.Labels{"network": "Astar", "date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksProduced))
+			missedBlockProductionGauge.With(prometheus.Labels{"network": "Astar", "date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksMissed))
 		}
 
 		lastUnixDay = unixDay
 	}
 }
 
+func updateBlockFillingsGuage(client *graphql.Client) {
+	// hard coded
+	api, err := gsrpc.NewSubstrateAPI("wss://rpc.astar.network")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	latestBlockNum, err := api.RPC.Chain.GetBlockLatest()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// hard coded. Approx - 7200 blocks * 12 sec = 86400 (= 1day)
+	lastBlockNum := uint32(latestBlockNum.Block.Header.Number) - 7200
+
+	for {
+		fmt.Println(lastBlockNum)
+		query := fmt.Sprintf(`query {
+			blocks (filter: {
+			  id: {
+				greaterThan: "%d",
+			  }
+			}, orderBy: ID_ASC) {
+				nodes {
+					id
+					extrinsicsCount
+					weightRatio
+				}
+			}
+		}`, lastBlockNum)
+
+		req := graphql.NewRequest(query)
+		req.Header.Set("Content-Type", "application/json")
+
+		var respData BlockFillingsResponseData
+		if err := client.Run(context.Background(), req, &respData); err != nil {
+			log.Fatal(err)
+		}
+
+		for _, node := range respData.BlockFillings.Nodes {
+			blockExtrinsicsGuage.With(prometheus.Labels{"network": "Astar", "block_number": node.BlockNumber}).Set(float64(node.ExtrinsicsCount))
+			blockWeightRatio.With(prometheus.Labels{"network": "Astar", "block_number": node.BlockNumber}).Set(node.WeightRatio)
+
+			blockNumber, err := strconv.ParseUint(node.BlockNumber, 10, 32)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if lastBlockNum < uint32(blockNumber) {
+				lastBlockNum = uint32(blockNumber)
+			}
+		}
+
+		time.Sleep(15 * time.Second)
+	}
+}
+
 func main() {
-	// block
-	go updateBlockProductionGuage()
+	graphQLClient := graphql.NewClient(endpoint)
+
+	go updateBlockProductionGuage(graphQLClient)
+	go updateBlockFillingsGuage(graphQLClient)
 
 	log.Println("Starting prometheus metric server")
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
