@@ -155,7 +155,6 @@ func updateBlockFillingsGuage(client *graphql.Client) {
 	lastBlockNum := uint32(latestBlockNum.Block.Header.Number) - 7200
 
 	for {
-		fmt.Println(lastBlockNum)
 		query := fmt.Sprintf(`query {
 			blocks (filter: {
 			  id: {
