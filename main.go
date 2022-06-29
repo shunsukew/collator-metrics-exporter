@@ -31,7 +31,7 @@ var (
 			Substrate: "wss://rpc.astar.network",
 		},
 		"Shiden": Endpoint{
-			Indexer:   "https://api.subquery.network/sq/bobo-k2/shiden-collator-indexer",
+			Indexer:   "https://api.subquery.network/sq/bobo-k2/shiden-colator-indexer-v2",
 			Substrate: "wss://rpc.shiden.astar.network",
 		},
 		"Shibuya": Endpoint{
