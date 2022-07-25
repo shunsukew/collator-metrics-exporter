@@ -28,19 +28,18 @@ var (
 	networkEndpoints = map[string]Endpoint{
 		"Astar": Endpoint{
 			Indexer:   "https://api.subquery.network/sq/bobo-k2/collator-indexer-v2",
-			Substrate: "wss://rpc.astar.network",
+			Substrate: "https://astar.public.blastapi.io",
 		},
 		"Shiden": Endpoint{
 			Indexer:   "https://api.subquery.network/sq/bobo-k2/shiden-colator-indexer-v2",
-			Substrate: "wss://rpc.shiden.astar.network",
+			Substrate: "https://shiden.public.blastapi.io",
 		},
 		"Shibuya": Endpoint{
 			Indexer:   "https://api.subquery.network/sq/bobo-k2/shibuya-collator-indexer",
-			Substrate: "wss://rpc.shibuya.astar.network",
+			Substrate: "https://shibuya.public.blastapi.io",
 		},
 	}
-	networkGraphQLClients = map[string]*graphql.Client{} // read only by goroutines
-	networkLastBlockNums  = map[string]uint32{}          // no concurrent update expected
+	networkLastBlockNums = map[string]uint32{} // no concurrent update expected
 )
 
 // Gueage
@@ -142,9 +141,12 @@ func updateBlockProductionGuage() {
 		req := graphql.NewRequest(query)
 		req.Header.Set("Content-Type", "application/json")
 
-		for network, client := range networkGraphQLClients {
+		for network, endpoint := range networkEndpoints {
+			graphQLClient := graphql.NewClient(endpoint.Indexer)
+
+			log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
 			var respData BlockProductionsResponseData
-			if err := client.Run(context.Background(), req, &respData); err != nil {
+			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
 				log.Fatal(err)
 			}
 
@@ -180,11 +182,13 @@ func updateBlockFillingsGuage() {
 			req := graphql.NewRequest(query)
 			req.Header.Set("Content-Type", "application/json")
 
-			graphQLClient, ok := networkGraphQLClients[network]
+			endpoint, ok := networkEndpoints[network]
 			if !ok {
 				log.Fatalf("unknown network %s", network)
 			}
+			graphQLClient := graphql.NewClient(endpoint.Indexer)
 
+			log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
 			var respData BlockFillingsResponseData
 			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
 				log.Fatal(err)
@@ -205,16 +209,12 @@ func updateBlockFillingsGuage() {
 			}
 		}
 
-		time.Sleep(15 * time.Second)
+		time.Sleep(10 * time.Minute)
 	}
 }
 
 func init() {
 	for network, endpoint := range networkEndpoints {
-		// GraphQL
-		graphQLClient := graphql.NewClient(endpoint.Indexer)
-		networkGraphQLClients[network] = graphQLClient
-
 		// Substrate API
 		api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
 		if err != nil {
