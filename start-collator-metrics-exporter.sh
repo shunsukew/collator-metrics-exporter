@@ -4,7 +4,7 @@ cd /usr/local/bin
 
 while ! [ -s collator-metrics-exporter ]; do
   rm -rf collator-metrics-exporter
-  wget https://github.com/shunsukew/collator-metrics-exporter/releases/download/v0.3.0/collator-metrics-exporter -O collator-metrics-exporter
+  wget https://github.com/shunsukew/collator-metrics-exporter/releases/download/v0.3.1/collator-metrics-exporter -O collator-metrics-exporter
   sleep 5
 done
 
