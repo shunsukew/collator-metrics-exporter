@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	gsrpc "github.com/centrifuge/go-substrate-rpc-client/v4"
@@ -39,7 +38,6 @@ var (
 			Substrate: "https://shibuya.public.blastapi.io",
 		},
 	}
-	networkLastBlockNums = map[string]uint32{} // no concurrent update expected
 )
 
 // Gueage
@@ -150,8 +148,8 @@ func updateBlockProductionGuage() {
 				log.Fatal(err)
 			}
 
-			blockProductionGauge.Delete(prometheus.Labels{"network": network})
-			missedBlockProductionGauge.Delete(prometheus.Labels{"network": network})
+			blockProductionGauge.DeletePartialMatch(prometheus.Labels{"network": network})
+			missedBlockProductionGauge.DeletePartialMatch(prometheus.Labels{"network": network})
 			for _, node := range respData.BlockProductions.Nodes {
 				blockProductionGauge.With(prometheus.Labels{"network": network, "date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksProduced))
 				missedBlockProductionGauge.With(prometheus.Labels{"network": network, "date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksMissed))
@@ -164,7 +162,20 @@ func updateBlockProductionGuage() {
 
 func updateBlockFillingsGuage() {
 	for {
-		for network, lastBlockNum := range networkLastBlockNums {
+		for network, endpoint := range networkEndpoints {
+			api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			latestBlockNum, err := api.RPC.Chain.GetBlockLatest()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// hard coded. Approx - 3600 blocks * 12 sec = 43200 (= 0.5day)
+			blockNumSince := uint32(latestBlockNum.Block.Header.Number) - 3600
+
 			query := fmt.Sprintf(`query {
 				blocks (filter: {
 				  id: {
@@ -177,7 +188,7 @@ func updateBlockFillingsGuage() {
 						weightRatio
 					}
 				}
-			}`, lastBlockNum)
+			}`, blockNumSince)
 
 			req := graphql.NewRequest(query)
 			req.Header.Set("Content-Type", "application/json")
@@ -194,41 +205,15 @@ func updateBlockFillingsGuage() {
 				log.Fatal(err)
 			}
 
+			blockExtrinsicsGuage.DeletePartialMatch(prometheus.Labels{"network": network})
+			blockWeightRatio.DeletePartialMatch(prometheus.Labels{"network": network})
 			for _, node := range respData.BlockFillings.Nodes {
 				blockExtrinsicsGuage.With(prometheus.Labels{"network": network, "block_number": node.BlockNumber}).Set(float64(node.ExtrinsicsCount))
 				blockWeightRatio.With(prometheus.Labels{"network": network, "block_number": node.BlockNumber}).Set(node.WeightRatio)
-
-				blockNumber, err := strconv.ParseUint(node.BlockNumber, 10, 32)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				if networkLastBlockNums[network] < uint32(blockNumber) {
-					networkLastBlockNums[network] = uint32(blockNumber)
-				}
 			}
 		}
 
-		time.Sleep(10 * time.Minute)
-	}
-}
-
-func init() {
-	for network, endpoint := range networkEndpoints {
-		// Substrate API
-		api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		latestBlockNum, err := api.RPC.Chain.GetBlockLatest()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// hard coded. Approx - 7200 blocks * 12 sec = 86400 (= 1day)
-		lastBlockNum := uint32(latestBlockNum.Block.Header.Number) - 7200
-		networkLastBlockNums[network] = lastBlockNum
+		time.Sleep(1 * time.Hour)
 	}
 }
 
