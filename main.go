@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	gsrpc "github.com/centrifuge/go-substrate-rpc-client/v4"
@@ -14,30 +16,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const (
-	port = 9102
-)
-
 type Endpoint struct {
 	Indexer   string
 	Substrate string
 }
 
 var (
-	networkEndpoints = map[string]Endpoint{
-		"Astar": Endpoint{
-			Indexer:   "https://api.subquery.network/sq/bobo-k2/collator-indexer-v2",
-			Substrate: "https://astar.public.blastapi.io",
-		},
-		"Shiden": Endpoint{
-			Indexer:   "https://api.subquery.network/sq/bobo-k2/shiden-colator-indexer-v2",
-			Substrate: "https://shiden.public.blastapi.io",
-		},
-		"Shibuya": Endpoint{
-			Indexer:   "https://api.subquery.network/sq/bobo-k2/shibuya-collator-indexer",
-			Substrate: "https://shibuya.public.blastapi.io",
-		},
-	}
+	port             uint32
+	networkEndpoints = map[string]*Endpoint{}
 )
 
 // Gueage
@@ -47,7 +33,7 @@ var (
 			Name: "block_production_count",
 			Help: "Block Productuion Count in the days before", // not last 24 hours because of subquery specification limitation.
 		},
-		[]string{"network", "date", "name", "address"},
+		[]string{"network", "at", "address"},
 	)
 
 	missedBlockProductionGauge = promauto.NewGaugeVec(
@@ -55,7 +41,7 @@ var (
 			Name: "missed_block_production_count",
 			Help: "Missed Block Productuion Count in the days before",
 		},
-		[]string{"network", "date", "name", "address"},
+		[]string{"network", "at", "address"},
 	)
 
 	blockExtrinsicsGuage = promauto.NewGaugeVec(
@@ -75,8 +61,12 @@ var (
 	)
 )
 
-type BlockProductionsResponseData struct {
-	BlockProductions BlockProductions `json:"blockProductions"`
+type BlockProductionResponseData struct {
+	Data BlockRealTimeData `json:"blockRealTimeData"`
+}
+
+type BlockRealTimeData struct {
+	BlockProductions []*BlockProduction `json:"groupedAggregates"`
 }
 
 type BlockProductions struct {
@@ -84,10 +74,12 @@ type BlockProductions struct {
 }
 
 type BlockProduction struct {
-	CollatorID     string   `json:"collatorId"`
-	Collator       Collator `json:"collator"`
-	BlocksProduced uint32   `json:"blocksProduced"`
-	BlocksMissed   uint32   `json:"blocksMissed"`
+	Keys               []string            `json:"keys"`
+	BlockDistinctCount *BlockDistinctCount `json:"distinctCount"`
+}
+
+type BlockDistinctCount struct {
+	BlockNumber string `json:"blockNumber"`
 }
 
 type Collator struct {
@@ -109,33 +101,39 @@ type BlockFilling struct {
 }
 
 func updateBlockProductionGuage() {
-	var lastUnixDay int64
+	// Update metrics hourly.
+	var lastUnixHour int64
 	for {
 		now := time.Now()
-		// if already updated metrics today
-		unixDay := now.Unix() / 86400
-		if lastUnixDay == unixDay {
-			time.Sleep(3600 * time.Second)
+		// if already updated metrics this hour, sleep
+		unixHour := now.Unix() / (86400 * 24)
+		if unixHour == lastUnixHour {
+			time.Sleep(10 * time.Minute)
 			continue
 		}
 
-		yesterday := now.AddDate(0, 0, -1).Format("20060102")
+		lastHourSince := now.Add(-1 * time.Hour).Truncate(time.Hour)
+		currentHourSince := now.Truncate(time.Hour)
+
 		query := fmt.Sprintf(`query {
-			blockProductions(filter: {
-			  dayId: {
-			    equalTo: "%s"
-			  }
+			blockRealTimeData(filter: {
+				and: [
+				  {timestamp: {greaterThanOrEqualTo: "%d"}},
+				  {timestamp: {lessThan: "%d"}},
+				]
 			}) {
-			  nodes {
-			    collatorId,
-			    collator{
-			      name
-			    },
-			    blocksProduced,
-			    blocksMissed
+			  groupedAggregates(groupBy: [COLLATOR_ADDRESS, STATUS]) {
+				keys
+				distinctCount {
+				  blockNumber
+				}
+				average{
+				  weightRatio
+				}
 			  }
 			}
-		}`, yesterday)
+		}`, lastHourSince.UnixMilli(), currentHourSince.UnixMilli())
+
 		req := graphql.NewRequest(query)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -143,24 +141,33 @@ func updateBlockProductionGuage() {
 			graphQLClient := graphql.NewClient(endpoint.Indexer)
 
 			log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
-			var respData BlockProductionsResponseData
+			var respData *BlockProductionResponseData
 			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
 				log.Fatal(err)
 			}
 
-			blockProductionGauge.DeletePartialMatch(prometheus.Labels{"network": network})
-			missedBlockProductionGauge.DeletePartialMatch(prometheus.Labels{"network": network})
-			for _, node := range respData.BlockProductions.Nodes {
-				blockProductionGauge.With(prometheus.Labels{"network": network, "date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksProduced))
-				missedBlockProductionGauge.With(prometheus.Labels{"network": network, "date": yesterday, "name": node.Collator.Name, "address": node.CollatorID}).Set(float64(node.BlocksMissed))
+			for _, blockProduction := range respData.Data.BlockProductions {
+				if len(blockProduction.Keys) != 2 {
+					continue
+				}
+
+				blocksCount, err := strconv.Atoi(blockProduction.BlockDistinctCount.BlockNumber)
+				if err != nil {
+					log.Fatal(err)
+				}
+				if blockProduction.Keys[1] == "Produced" {
+					blockProductionGauge.With(prometheus.Labels{"network": network, "at": currentHourSince.String(), "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+				} else {
+					missedBlockProductionGauge.With(prometheus.Labels{"network": network, "at": currentHourSince.String(), "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+				}
 			}
 		}
 
-		lastUnixDay = unixDay
+		lastUnixHour = unixHour
 	}
 }
 
-func updateBlockFillingsGuage() {
+func updateBlockFillingGuage() {
 	for {
 		for network, endpoint := range networkEndpoints {
 			api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
@@ -217,14 +224,52 @@ func updateBlockFillingsGuage() {
 	}
 }
 
+func init() {
+	portTmp, err := strconv.Atoi(os.Getenv("PORT"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	port = uint32(portTmp)
+
+	astarIndexerEndpoint := os.Getenv("ASTAR_INDEXER_ENDPOINT")
+	if astarIndexerEndpoint == "" {
+		log.Fatal("Astar indexer endpoint is not set")
+	}
+	astarNodeEndpoint := os.Getenv("ASTAR_NODE_ENDPOINT")
+	if astarNodeEndpoint == "" {
+		log.Fatal("Astar node endpoint is not set")
+	}
+	// shidenIndexerEndpoint := os.Getenv("SHIDEN_INDEXER_ENDPOINT")
+	// if shidenIndexerEndpoint == "" {
+	// log.Fatal("Shiden indexer endpoint is not set")
+	// }
+	// shidenNodeEndpoint := os.Getenv("SHIDEN_NODE_ENDPOINT")
+	// if shidenNodeEndpoint == "" {
+	// log.Fatal("Shiden node endpoint is not set")
+	// }
+	// shibuyaIndexerEndpoint := os.Getenv("SHIBUYA_INDEXER_ENDPOINT")
+	// if shibuyaIndexerEndpoint == "" {
+	// log.Fatal("Shibuya indexer endpoint is not set")
+	// }
+	// shibuyaNodeEndpoint := os.Getenv("SHIBUYA_NODE_ENDPOINT")
+	// if shibuyaNodeEndpoint == "" {
+	// log.Fatal("Shibuya node endpoint is not set")
+	// }
+
+	networkEndpoints["Astar"] = &Endpoint{Indexer: astarIndexerEndpoint, Substrate: astarNodeEndpoint}
+	// networkEndpoints["Shiden"] = &Endpoint{Indexer: shidenIndexerEndpoint, Substrate: shidenNodeEndpoint}
+	// networkEndpoints["Shibuya"] = &Endpoint{Indexer: shibuyaIndexerEndpoint, Substrate: shibuyaNodeEndpoint}
+}
+
 func main() {
 	go updateBlockProductionGuage()
-	go updateBlockFillingsGuage()
+	// go updateBlockFillingGuage()
 
 	log.Println("Starting prometheus metric server")
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	http.Handle("/metrics", promhttp.Handler())
+	log.Println(fmt.Sprintf("Listening on port %d", port))
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
