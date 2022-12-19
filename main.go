@@ -105,14 +105,15 @@ func updateBlockProductionGuage() {
 	for {
 		now := time.Now()
 		// if already updated metrics this hour, sleep
-		unixHour := now.Unix() / (86400 * 24)
+		currentHour := now.Truncate(time.Hour)
+		unixHour := currentHour.Unix()
 		if unixHour == lastUnixHour {
 			time.Sleep(10 * time.Minute)
 			continue
 		}
 
-		lastHourSince := now.Add(-1 * time.Hour).Truncate(time.Hour)
-		currentHourSince := now.Truncate(time.Hour)
+		since := currentHour.Add(-24 * time.Hour)
+		until := currentHour
 
 		query := fmt.Sprintf(`query {
 			blockRealTimeData(filter: {
@@ -131,7 +132,7 @@ func updateBlockProductionGuage() {
 				}
 			  }
 			}
-		}`, lastHourSince.UnixMilli(), currentHourSince.UnixMilli())
+		}`, since.UnixMilli(), until.UnixMilli())
 
 		req := graphql.NewRequest(query)
 		req.Header.Set("Content-Type", "application/json")
@@ -155,9 +156,9 @@ func updateBlockProductionGuage() {
 					log.Fatal(err)
 				}
 				if blockProduction.Keys[1] == "Produced" {
-					blockProductionGauge.With(prometheus.Labels{"network": network, "at": currentHourSince.String(), "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+					blockProductionGauge.With(prometheus.Labels{"network": network, "at": currentHour.String(), "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
 				} else {
-					missedBlockProductionGauge.With(prometheus.Labels{"network": network, "at": currentHourSince.String(), "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+					missedBlockProductionGauge.With(prometheus.Labels{"network": network, "at": currentHour.String(), "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
 				}
 			}
 		}
