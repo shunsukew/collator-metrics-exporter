@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	gsrpc "github.com/centrifuge/go-substrate-rpc-client/v4"
 	"github.com/machinebox/graphql"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -167,62 +166,62 @@ func updateBlockProductionGuage() {
 	}
 }
 
-func updateBlockFillingGuage() {
-	for {
-		for network, endpoint := range networkEndpoints {
-			api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
-			if err != nil {
-				log.Fatal(err)
-			}
+// func updateBlockFillingGuage() {
+// for {
+// for network, endpoint := range networkEndpoints {
+// api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
+// if err != nil {
+// log.Fatal(err)
+// }
 
-			latestBlockNum, err := api.RPC.Chain.GetBlockLatest()
-			if err != nil {
-				log.Fatal(err)
-			}
+// latestBlockNum, err := api.RPC.Chain.GetBlockLatest()
+// if err != nil {
+// log.Fatal(err)
+// }
 
-			// hard coded. Approx - 3600 blocks * 12 sec = 43200 (= 0.5day)
-			blockNumSince := uint32(latestBlockNum.Block.Header.Number) - 3600
+// // hard coded. Approx - 3600 blocks * 12 sec = 43200 (= 0.5day)
+// blockNumSince := uint32(latestBlockNum.Block.Header.Number) - 3600
 
-			query := fmt.Sprintf(`query {
-				blocks (filter: {
-				  id: {
-					greaterThan: "%d",
-				  }
-				}, orderBy: ID_ASC) {
-					nodes {
-						id
-						extrinsicsCount
-						weightRatio
-					}
-				}
-			}`, blockNumSince)
+// query := fmt.Sprintf(`query {
+// blocks (filter: {
+// id: {
+// greaterThan: "%d",
+// }
+// }, orderBy: ID_ASC) {
+// nodes {
+// id
+// extrinsicsCount
+// weightRatio
+// }
+// }
+// }`, blockNumSince)
 
-			req := graphql.NewRequest(query)
-			req.Header.Set("Content-Type", "application/json")
+// req := graphql.NewRequest(query)
+// req.Header.Set("Content-Type", "application/json")
 
-			endpoint, ok := networkEndpoints[network]
-			if !ok {
-				log.Fatalf("unknown network %s", network)
-			}
-			graphQLClient := graphql.NewClient(endpoint.Indexer)
+// endpoint, ok := networkEndpoints[network]
+// if !ok {
+// log.Fatalf("unknown network %s", network)
+// }
+// graphQLClient := graphql.NewClient(endpoint.Indexer)
 
-			log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
-			var respData BlockFillingsResponseData
-			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
-				log.Fatal(err)
-			}
+// log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
+// var respData BlockFillingsResponseData
+// if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
+// log.Fatal(err)
+// }
 
-			blockExtrinsicsGuage.DeletePartialMatch(prometheus.Labels{"network": network})
-			blockWeightRatio.DeletePartialMatch(prometheus.Labels{"network": network})
-			for _, node := range respData.BlockFillings.Nodes {
-				blockExtrinsicsGuage.With(prometheus.Labels{"network": network, "block_number": node.BlockNumber}).Set(float64(node.ExtrinsicsCount))
-				blockWeightRatio.With(prometheus.Labels{"network": network, "block_number": node.BlockNumber}).Set(node.WeightRatio)
-			}
-		}
+// blockExtrinsicsGuage.DeletePartialMatch(prometheus.Labels{"network": network})
+// blockWeightRatio.DeletePartialMatch(prometheus.Labels{"network": network})
+// for _, node := range respData.BlockFillings.Nodes {
+// blockExtrinsicsGuage.With(prometheus.Labels{"network": network, "block_number": node.BlockNumber}).Set(float64(node.ExtrinsicsCount))
+// blockWeightRatio.With(prometheus.Labels{"network": network, "block_number": node.BlockNumber}).Set(node.WeightRatio)
+// }
+// }
 
-		time.Sleep(1 * time.Hour)
-	}
-}
+// time.Sleep(1 * time.Hour)
+// }
+// }
 
 func init() {
 	portTmp, err := strconv.Atoi(os.Getenv("PORT"))
