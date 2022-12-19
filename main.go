@@ -32,7 +32,7 @@ var (
 			Name: "block_production_count",
 			Help: "Block Productuion Count in the days before", // not last 24 hours because of subquery specification limitation.
 		},
-		[]string{"network", "at", "address"},
+		[]string{"network", "address"},
 	)
 
 	missedBlockProductionGauge = promauto.NewGaugeVec(
@@ -40,7 +40,7 @@ var (
 			Name: "missed_block_production_count",
 			Help: "Missed Block Productuion Count in the days before",
 		},
-		[]string{"network", "at", "address"},
+		[]string{"network", "address"},
 	)
 
 	blockExtrinsicsGuage = promauto.NewGaugeVec(
@@ -156,9 +156,9 @@ func updateBlockProductionGuage() {
 					log.Fatal(err)
 				}
 				if blockProduction.Keys[1] == "Produced" {
-					blockProductionGauge.With(prometheus.Labels{"network": network, "at": currentHour.String(), "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+					blockProductionGauge.With(prometheus.Labels{"network": network, "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
 				} else {
-					missedBlockProductionGauge.With(prometheus.Labels{"network": network, "at": currentHour.String(), "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+					missedBlockProductionGauge.With(prometheus.Labels{"network": network, "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
 				}
 			}
 		}
