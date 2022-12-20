@@ -127,9 +127,6 @@ func updateBlockProductionGuage() {
 				distinctCount {
 				  blockNumber
 				}
-				average{
-				  weightRatio
-				}
 			  }
 			}
 		}`, since.UnixMilli(), until.UnixMilli())
@@ -239,26 +236,26 @@ func init() {
 	if astarNodeEndpoint == "" {
 		log.Fatal("Astar node endpoint is not set")
 	}
-	// shidenIndexerEndpoint := os.Getenv("SHIDEN_INDEXER_ENDPOINT")
-	// if shidenIndexerEndpoint == "" {
-	// log.Fatal("Shiden indexer endpoint is not set")
-	// }
-	// shidenNodeEndpoint := os.Getenv("SHIDEN_NODE_ENDPOINT")
-	// if shidenNodeEndpoint == "" {
-	// log.Fatal("Shiden node endpoint is not set")
-	// }
-	// shibuyaIndexerEndpoint := os.Getenv("SHIBUYA_INDEXER_ENDPOINT")
-	// if shibuyaIndexerEndpoint == "" {
-	// log.Fatal("Shibuya indexer endpoint is not set")
-	// }
-	// shibuyaNodeEndpoint := os.Getenv("SHIBUYA_NODE_ENDPOINT")
-	// if shibuyaNodeEndpoint == "" {
-	// log.Fatal("Shibuya node endpoint is not set")
-	// }
+	shidenIndexerEndpoint := os.Getenv("SHIDEN_INDEXER_ENDPOINT")
+	if shidenIndexerEndpoint == "" {
+		log.Fatal("Shiden indexer endpoint is not set")
+	}
+	shidenNodeEndpoint := os.Getenv("SHIDEN_NODE_ENDPOINT")
+	if shidenNodeEndpoint == "" {
+		log.Fatal("Shiden node endpoint is not set")
+	}
+	shibuyaIndexerEndpoint := os.Getenv("SHIBUYA_INDEXER_ENDPOINT")
+	if shibuyaIndexerEndpoint == "" {
+		log.Fatal("Shibuya indexer endpoint is not set")
+	}
+	shibuyaNodeEndpoint := os.Getenv("SHIBUYA_NODE_ENDPOINT")
+	if shibuyaNodeEndpoint == "" {
+		log.Fatal("Shibuya node endpoint is not set")
+	}
 
 	networkEndpoints["Astar"] = &Endpoint{Indexer: astarIndexerEndpoint, Substrate: astarNodeEndpoint}
-	// networkEndpoints["Shiden"] = &Endpoint{Indexer: shidenIndexerEndpoint, Substrate: shidenNodeEndpoint}
-	// networkEndpoints["Shibuya"] = &Endpoint{Indexer: shibuyaIndexerEndpoint, Substrate: shibuyaNodeEndpoint}
+	networkEndpoints["Shiden"] = &Endpoint{Indexer: shidenIndexerEndpoint, Substrate: shidenNodeEndpoint}
+	networkEndpoints["Shibuya"] = &Endpoint{Indexer: shibuyaIndexerEndpoint, Substrate: shibuyaNodeEndpoint}
 }
 
 func main() {
