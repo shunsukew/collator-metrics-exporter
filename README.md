@@ -22,12 +22,15 @@ This just queries data from SubQuery and export them as Prometheus formatted way
   ```
   missed_block_production_count{} 1
 
-- `produced_blocks` Block Information
-  ```
-  produced_blocks{collator_name: xxx, collator_address: yyy, block_height: 10000} 0
-  ```
-
 ## How to run
 1. put collator-metrics-exporter service at /etc/systemd/system/
 2. put start-collator-metrics-exporter.sh at /usr/local/bin/
 3. sudo systemctl enable collator-metrics-exporter
+
+## DB
+```
+docker-compose up -d
+docker exec -it postgres /bin/sh
+psql -h localhost -U postgres
+\c blocks
+```

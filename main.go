@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	gsrpc "github.com/centrifuge/go-substrate-rpc-client/v4"
+	_ "github.com/lib/pq"
 	"github.com/machinebox/graphql"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -23,6 +26,8 @@ type Endpoint struct {
 var (
 	port             uint32
 	networkEndpoints = map[string]*Endpoint{}
+
+	dataSource string
 )
 
 // Gueage
@@ -42,29 +47,13 @@ var (
 		},
 		[]string{"network", "address"},
 	)
-
-	blockExtrinsicsGuage = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "block_extrinsics_count",
-			Help: "Block Extrinsics Count",
-		},
-		[]string{"network", "block_number"},
-	)
-
-	blockWeightRatio = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "block_weight_ratio",
-			Help: "Block Weight Ratio",
-		},
-		[]string{"network", "block_number"},
-	)
 )
 
 type BlockProductionResponseData struct {
-	Data BlockRealTimeData `json:"blockRealTimeData"`
+	Data BlockProductionsData `json:"blockRealTimeData"`
 }
 
-type BlockRealTimeData struct {
+type BlockProductionsData struct {
 	BlockProductions []*BlockProduction `json:"groupedAggregates"`
 }
 
@@ -81,22 +70,21 @@ type BlockDistinctCount struct {
 	BlockNumber string `json:"blockNumber"`
 }
 
-type Collator struct {
-	Name string `json:"name"`
+type BlocksResponseData struct {
+	Data BlockDatum `json:"blockRealTimeData"`
 }
 
-type BlockFillingsResponseData struct {
-	BlockFillings BlockFillings `json:"blocks"`
+type BlockDatum struct {
+	BlockDatum []*BlockData `json:"nodes"`
 }
 
-type BlockFillings struct {
-	Nodes []*BlockFilling `json:"nodes"`
-}
-
-type BlockFilling struct {
-	BlockNumber     string  `json:"id"`
+type BlockData struct {
+	BlockNumber     string  `json:"blockNumber"`
+	Timestamp       string  `json:"timestamp"`
+	CollatorAddress string  `json:"collatorAddress"`
 	ExtrinsicsCount uint32  `json:"extrinsicsCount"`
-	WeightRatio     float64 `json:"weightRatio"`
+	Weight          string  `json:"weight"`
+	WeightRatio     float32 `json:"weightRatio"`
 }
 
 func updateBlockProductionGuage() {
@@ -164,62 +152,117 @@ func updateBlockProductionGuage() {
 	}
 }
 
-// func updateBlockFillingGuage() {
-// for {
-// for network, endpoint := range networkEndpoints {
-// api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
-// if err != nil {
-// log.Fatal(err)
-// }
+func updateBlockFillingGuage() {
+	db, err := sql.Open("postgres", dataSource)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer db.Close()
 
-// latestBlockNum, err := api.RPC.Chain.GetBlockLatest()
-// if err != nil {
-// log.Fatal(err)
-// }
+	for {
+		for network, endpoint := range networkEndpoints {
+			var lastBlockTimestamp int64
+			time.Now().Unix()
+			err = db.QueryRow("SELECT block_timestamp FROM blocks WHERE network = $1 ORDER BY block_number DESC LIMIT 1;", network).Scan(&lastBlockTimestamp)
+			if err != nil && err != sql.ErrNoRows {
+				log.Fatal(err)
+			}
 
-// // hard coded. Approx - 3600 blocks * 12 sec = 43200 (= 0.5day)
-// blockNumSince := uint32(latestBlockNum.Block.Header.Number) - 3600
+			if lastBlockTimestamp == 0 {
+				api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
+				if err != nil {
+					log.Fatal(err)
+				}
 
-// query := fmt.Sprintf(`query {
-// blocks (filter: {
-// id: {
-// greaterThan: "%d",
-// }
-// }, orderBy: ID_ASC) {
-// nodes {
-// id
-// extrinsicsCount
-// weightRatio
-// }
-// }
-// }`, blockNumSince)
+				latestBlockNum, err := api.RPC.Chain.GetBlockLatest()
+				if err != nil {
+					log.Fatal(err)
+				}
 
-// req := graphql.NewRequest(query)
-// req.Header.Set("Content-Type", "application/json")
+				// hard coded. Approx - 3600 blocks * 12 sec = 43200 (= 0.5day)
+				lastBlockTimestamp = int64(latestBlockNum.Block.Header.Number) - 3600
+			}
 
-// endpoint, ok := networkEndpoints[network]
-// if !ok {
-// log.Fatalf("unknown network %s", network)
-// }
-// graphQLClient := graphql.NewClient(endpoint.Indexer)
+			query := fmt.Sprintf(`query {
+				blockRealTimeData(filter: {
+					and: [
+						{timestamp: {greaterThanOrEqualTo: "%d"}}
+						{status: {equalTo: Produced}}
+					]
+				}) {
+					nodes {
+						blockNumber
+						timestamp
+						collatorAddress
+						extrinsicsCount
+						weight
+						weightRatio
+					}
+				}
+			}`, lastBlockTimestamp)
 
-// log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
-// var respData BlockFillingsResponseData
-// if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
-// log.Fatal(err)
-// }
+			req := graphql.NewRequest(query)
+			req.Header.Set("Content-Type", "application/json")
 
-// blockExtrinsicsGuage.DeletePartialMatch(prometheus.Labels{"network": network})
-// blockWeightRatio.DeletePartialMatch(prometheus.Labels{"network": network})
-// for _, node := range respData.BlockFillings.Nodes {
-// blockExtrinsicsGuage.With(prometheus.Labels{"network": network, "block_number": node.BlockNumber}).Set(float64(node.ExtrinsicsCount))
-// blockWeightRatio.With(prometheus.Labels{"network": network, "block_number": node.BlockNumber}).Set(node.WeightRatio)
-// }
-// }
+			endpoint, ok := networkEndpoints[network]
+			if !ok {
+				log.Fatalf("unknown network %s", network)
+			}
+			graphQLClient := graphql.NewClient(endpoint.Indexer)
 
-// time.Sleep(1 * time.Hour)
-// }
-// }
+			log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
+			var respData *BlocksResponseData
+			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
+				log.Fatal(err)
+			}
+
+			var blockNumber uint64
+			var blockTimestamp uint64
+			var weight uint64
+			for _, block := range respData.Data.BlockDatum {
+				blockNumber, err = strconv.ParseUint(block.BlockNumber, 10, 64)
+				if err != nil {
+					fmt.Println("HERE 1")
+					fmt.Println(block.BlockNumber)
+					log.Fatal(err)
+				}
+				blockTimestamp, err = strconv.ParseUint(block.Timestamp, 10, 64)
+				if err != nil {
+					fmt.Println("HERE 2")
+					fmt.Println(blockTimestamp)
+					log.Fatal(err)
+				}
+				weight, err = strconv.ParseUint(block.Weight, 10, 64)
+				if err != nil {
+					fmt.Println("HERE 3")
+					fmt.Println(network)
+					fmt.Println(lastBlockTimestamp)
+					fmt.Println(block.Weight)
+					log.Fatal(err)
+				}
+
+				_, err = db.Exec(
+					"INSERT INTO blocks(network, block_number, block_timestamp, collator_address, extrinsics_count, weight, weight_ratio) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (network, block_number) DO UPDATE SET extrinsics_count=$8, weight=$9, weight_ratio=$10;",
+					network,
+					blockNumber,
+					blockTimestamp,
+					block.CollatorAddress,
+					block.ExtrinsicsCount,
+					weight,
+					block.WeightRatio,
+					block.ExtrinsicsCount,
+					weight,
+					block.WeightRatio,
+				)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+		}
+
+		time.Sleep(1 * time.Hour)
+	}
+}
 
 func init() {
 	portTmp, err := strconv.Atoi(os.Getenv("PORT"))
@@ -227,6 +270,11 @@ func init() {
 		log.Fatal(err)
 	}
 	port = uint32(portTmp)
+
+	dataSource = os.Getenv("DATA_SOURCE")
+	if dataSource == "" {
+		log.Fatal("data source is not set")
+	}
 
 	astarIndexerEndpoint := os.Getenv("ASTAR_INDEXER_ENDPOINT")
 	if astarIndexerEndpoint == "" {
@@ -260,7 +308,7 @@ func init() {
 
 func main() {
 	go updateBlockProductionGuage()
-	// go updateBlockFillingGuage()
+	go updateBlockFillingGuage()
 
 	log.Println("Starting prometheus metric server")
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
