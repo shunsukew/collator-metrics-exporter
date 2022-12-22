@@ -189,7 +189,7 @@ func updateBlockFillingGuage() {
 						{timestamp: {greaterThanOrEqualTo: "%d"}}
 						{status: {equalTo: Produced}}
 					]
-				}) {
+				}, orderBy: TIMESTAMP_ASC) {
 					nodes {
 						blockNumber
 						timestamp

@@ -10,5 +10,6 @@ CREATE TABLE blocks (
     extrinsics_count INTEGER NOT NULL,
     weight BIGINT,
     weight_ratio FLOAT NOT NULL,
-    PRIMARY KEY ( network, block_number )
+    PRIMARY KEY ( network, block_number ),
+    INDEX block_timestamp_index (block_timestamp),
 );
