@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	gsrpc "github.com/centrifuge/go-substrate-rpc-client/v4"
 	_ "github.com/lib/pq"
 	"github.com/machinebox/graphql"
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,7 +24,7 @@ type Endpoint struct {
 
 var (
 	port             uint32
-	networkEndpoints = map[string]*Endpoint{}
+	networkEndpoints = map[string]string{}
 
 	dataSource string
 )
@@ -123,9 +122,9 @@ func updateBlockProductionGuage() {
 		req.Header.Set("Content-Type", "application/json")
 
 		for network, endpoint := range networkEndpoints {
-			graphQLClient := graphql.NewClient(endpoint.Indexer)
+			graphQLClient := graphql.NewClient(endpoint)
 
-			log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
+			log.Println(fmt.Printf("Requesting %s ...", endpoint))
 			var respData *BlockProductionResponseData
 			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
 				log.Fatal(err)
@@ -160,7 +159,7 @@ func updateBlockFillingGuage() {
 	defer db.Close()
 
 	for {
-		for network, endpoint := range networkEndpoints {
+		for network, _ := range networkEndpoints {
 			var lastBlockTimestamp int64
 			time.Now().Unix()
 			err = db.QueryRow("SELECT block_timestamp FROM blocks WHERE network = $1 ORDER BY block_timestamp DESC LIMIT 1;", network).Scan(&lastBlockTimestamp)
@@ -169,18 +168,7 @@ func updateBlockFillingGuage() {
 			}
 
 			if lastBlockTimestamp == 0 {
-				api, err := gsrpc.NewSubstrateAPI(endpoint.Substrate)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				latestBlockNum, err := api.RPC.Chain.GetBlockLatest()
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				// hard coded. Approx - 3600 blocks * 12 sec = 43200 (= 0.5day)
-				lastBlockTimestamp = int64(latestBlockNum.Block.Header.Number) - 3600
+				lastBlockTimestamp = time.Now().Add(-1 * time.Hour).UnixMilli()
 			}
 
 			query := fmt.Sprintf(`query {
@@ -208,9 +196,9 @@ func updateBlockFillingGuage() {
 			if !ok {
 				log.Fatalf("unknown network %s", network)
 			}
-			graphQLClient := graphql.NewClient(endpoint.Indexer)
+			graphQLClient := graphql.NewClient(endpoint)
 
-			log.Println(fmt.Printf("Requesting %s ...", endpoint.Indexer))
+			log.Println(fmt.Printf("Requesting %s ...", endpoint))
 			var respData *BlocksResponseData
 			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
 				log.Fatal(err)
@@ -280,30 +268,18 @@ func init() {
 	if astarIndexerEndpoint == "" {
 		log.Fatal("Astar indexer endpoint is not set")
 	}
-	astarNodeEndpoint := os.Getenv("ASTAR_NODE_ENDPOINT")
-	if astarNodeEndpoint == "" {
-		log.Fatal("Astar node endpoint is not set")
-	}
 	shidenIndexerEndpoint := os.Getenv("SHIDEN_INDEXER_ENDPOINT")
 	if shidenIndexerEndpoint == "" {
 		log.Fatal("Shiden indexer endpoint is not set")
-	}
-	shidenNodeEndpoint := os.Getenv("SHIDEN_NODE_ENDPOINT")
-	if shidenNodeEndpoint == "" {
-		log.Fatal("Shiden node endpoint is not set")
 	}
 	shibuyaIndexerEndpoint := os.Getenv("SHIBUYA_INDEXER_ENDPOINT")
 	if shibuyaIndexerEndpoint == "" {
 		log.Fatal("Shibuya indexer endpoint is not set")
 	}
-	shibuyaNodeEndpoint := os.Getenv("SHIBUYA_NODE_ENDPOINT")
-	if shibuyaNodeEndpoint == "" {
-		log.Fatal("Shibuya node endpoint is not set")
-	}
 
-	networkEndpoints["Astar"] = &Endpoint{Indexer: astarIndexerEndpoint, Substrate: astarNodeEndpoint}
-	networkEndpoints["Shiden"] = &Endpoint{Indexer: shidenIndexerEndpoint, Substrate: shidenNodeEndpoint}
-	networkEndpoints["Shibuya"] = &Endpoint{Indexer: shibuyaIndexerEndpoint, Substrate: shibuyaNodeEndpoint}
+	networkEndpoints["Astar"] = astarIndexerEndpoint
+	networkEndpoints["Shiden"] = shidenIndexerEndpoint
+	networkEndpoints["Shibuya"] = shibuyaIndexerEndpoint
 }
 
 func main() {
