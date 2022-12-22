@@ -163,7 +163,7 @@ func updateBlockFillingGuage() {
 		for network, endpoint := range networkEndpoints {
 			var lastBlockTimestamp int64
 			time.Now().Unix()
-			err = db.QueryRow("SELECT block_timestamp FROM blocks WHERE network = $1 ORDER BY block_number DESC LIMIT 1;", network).Scan(&lastBlockTimestamp)
+			err = db.QueryRow("SELECT block_timestamp FROM blocks WHERE network = $1 ORDER BY block_timestamp DESC LIMIT 1;", network).Scan(&lastBlockTimestamp)
 			if err != nil && err != sql.ErrNoRows {
 				log.Fatal(err)
 			}
@@ -260,7 +260,7 @@ func updateBlockFillingGuage() {
 			}
 		}
 
-		time.Sleep(1 * time.Hour)
+		time.Sleep(5 * time.Minute)
 	}
 }
 
