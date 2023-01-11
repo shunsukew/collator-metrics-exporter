@@ -129,20 +129,29 @@ func updateBlockProductionGuage() {
 			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
 				log.Fatal(err)
 			}
+			if respData == nil {
+				continue
+			}
 
-			for _, blockProduction := range respData.Data.BlockProductions {
-				if len(blockProduction.Keys) != 2 {
-					continue
-				}
+			if respData.Data.BlockProductions != nil {
+				for _, blockProduction := range respData.Data.BlockProductions {
+					if len(blockProduction.Keys) != 2 {
+						continue
+					}
 
-				blocksCount, err := strconv.Atoi(blockProduction.BlockDistinctCount.BlockNumber)
-				if err != nil {
-					log.Fatal(err)
-				}
-				if blockProduction.Keys[1] == "Produced" {
-					blockProductionGauge.With(prometheus.Labels{"network": network, "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
-				} else {
-					missedBlockProductionGauge.With(prometheus.Labels{"network": network, "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+					var blocksCount int
+					var err error
+					if blockProduction.BlockDistinctCount != nil {
+						blocksCount, err = strconv.Atoi(blockProduction.BlockDistinctCount.BlockNumber)
+						if err != nil {
+							log.Fatal(err)
+						}
+					}
+					if blockProduction.Keys[1] == "Produced" {
+						blockProductionGauge.With(prometheus.Labels{"network": network, "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+					} else {
+						missedBlockProductionGauge.With(prometheus.Labels{"network": network, "address": blockProduction.Keys[0]}).Set(float64(blocksCount))
+					}
 				}
 			}
 		}
@@ -203,6 +212,9 @@ func updateBlockFillingGuage() {
 			if err := graphQLClient.Run(context.Background(), req, &respData); err != nil {
 				log.Fatal(err)
 			}
+			if respData == nil {
+				continue
+			}
 
 			var blockNumber uint64
 			var blockTimestamp uint64
@@ -210,22 +222,14 @@ func updateBlockFillingGuage() {
 			for _, block := range respData.Data.BlockDatum {
 				blockNumber, err = strconv.ParseUint(block.BlockNumber, 10, 64)
 				if err != nil {
-					fmt.Println("HERE 1")
-					fmt.Println(block.BlockNumber)
 					log.Fatal(err)
 				}
 				blockTimestamp, err = strconv.ParseUint(block.Timestamp, 10, 64)
 				if err != nil {
-					fmt.Println("HERE 2")
-					fmt.Println(blockTimestamp)
 					log.Fatal(err)
 				}
 				weight, err = strconv.ParseUint(block.Weight, 10, 64)
 				if err != nil {
-					fmt.Println("HERE 3")
-					fmt.Println(network)
-					fmt.Println(lastBlockTimestamp)
-					fmt.Println(block.Weight)
 					log.Fatal(err)
 				}
 
