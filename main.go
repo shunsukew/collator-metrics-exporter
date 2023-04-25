@@ -281,9 +281,9 @@ func init() {
 		log.Fatal("Shibuya indexer endpoint is not set")
 	}
 
-	networkEndpoints["Astar"] = astarIndexerEndpoint
-	networkEndpoints["Shiden"] = shidenIndexerEndpoint
-	networkEndpoints["Shibuya"] = shibuyaIndexerEndpoint
+	networkEndpoints["astar"] = astarIndexerEndpoint
+	networkEndpoints["shiden"] = shidenIndexerEndpoint
+	networkEndpoints["shibuya"] = shibuyaIndexerEndpoint
 }
 
 func main() {
